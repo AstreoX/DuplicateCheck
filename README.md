@@ -1,0 +1,2 @@
+# DuplicateCheck
+基于Embedding向量嵌入结合余弦相似度匹配开发的查重脚本
