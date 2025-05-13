@@ -11,6 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import warnings
 import threading
 from tkinter import ttk
+import shutil
 
 # 忽略警告
 warnings.filterwarnings('ignore')
@@ -137,6 +138,10 @@ class DuplicateQuestionChecker:
         self.duplicate_pairs = []
         self.loading_window = None
         
+        # 设置默认模型缓存路径
+        self.default_model_dir = os.path.join(os.path.expanduser("~"), ".cache", "sentence-transformers")
+        self.model_cache_dir = self.default_model_dir
+        
         self.setup_ui()
     
     def setup_ui(self):
@@ -156,6 +161,30 @@ class DuplicateQuestionChecker:
         
         browse_button = tk.Button(file_frame, text="浏览", command=self.browse_file)
         browse_button.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # 模型缓存路径区域
+        model_cache_frame = tk.LabelFrame(main_frame, text="模型缓存设置")
+        model_cache_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 模型缓存路径输入
+        cache_path_label = tk.Label(model_cache_frame, text="模型缓存路径:")
+        cache_path_label.grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        
+        self.cache_path_var = tk.StringVar(value=self.model_cache_dir)
+        cache_path_entry = tk.Entry(model_cache_frame, textvariable=self.cache_path_var, width=50)
+        cache_path_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W+tk.E)
+        
+        browse_cache_button = tk.Button(model_cache_frame, text="浏览", command=self.browse_cache_dir)
+        browse_cache_button.grid(row=0, column=2, padx=5, pady=5)
+        
+        # 缓存状态显示
+        self.cache_status_var = tk.StringVar(value="")
+        cache_status_label = tk.Label(model_cache_frame, textvariable=self.cache_status_var, fg="blue")
+        cache_status_label.grid(row=1, column=0, columnspan=3, padx=5, pady=2, sticky=tk.W)
+        
+        # 查询缓存状态按钮
+        check_cache_button = tk.Button(model_cache_frame, text="检查缓存状态", command=self.check_model_cache)
+        check_cache_button.grid(row=2, column=0, columnspan=3, padx=5, pady=5)
         
         # 参数设置区域
         param_frame = tk.LabelFrame(main_frame, text="参数设置")
@@ -212,6 +241,9 @@ class DuplicateQuestionChecker:
                                    from_=0, to=100, orient=tk.HORIZONTAL, 
                                    showvalue=True, state=tk.DISABLED)
         self.progress_bar.pack(fill=tk.X)
+
+        # 启动时检查缓存状态
+        self.root.after(500, self.check_model_cache)
     
     def browse_file(self):
         file_path = filedialog.askopenfilename(
@@ -221,6 +253,63 @@ class DuplicateQuestionChecker:
         )
         if file_path:
             self.file_path_var.set(file_path)
+    
+    def browse_cache_dir(self):
+        """选择模型缓存目录"""
+        dir_path = filedialog.askdirectory(
+            initialdir=self.cache_path_var.get(),
+            title="选择模型缓存目录"
+        )
+        if dir_path:
+            self.cache_path_var.set(dir_path)
+            self.model_cache_dir = dir_path
+            self.check_model_cache()
+    
+    def model_exists_in_cache(self, model_name, cache_dir):
+        """检查模型是否存在于缓存目录中"""
+        # 正常缓存目录结构
+        model_dir_name = f"models--sentence-transformers--{model_name}"
+        model_dir = os.path.join(cache_dir, model_dir_name)
+        
+        # 直接检查目录存在性，不再检查config.json
+        if os.path.exists(model_dir) and os.path.isdir(model_dir):
+            # 检查是否有任何文件，确保不是空目录
+            if len(os.listdir(model_dir)) > 0:
+                return True, model_dir
+        
+        # 尝试在任何子目录中查找模型目录
+        for root, dirs, _ in os.walk(cache_dir):
+            for dir_name in dirs:
+                if dir_name == model_dir_name:
+                    model_path = os.path.join(root, dir_name)
+                    if os.path.exists(model_path) and len(os.listdir(model_path)) > 0:
+                        return True, model_path
+        
+        return False, None
+    
+    def check_model_cache(self):
+        """检查指定目录中是否有缓存的模型"""
+        cache_dir = self.cache_path_var.get()
+        model_name = self.model_var.get()
+        
+        # 确保目录存在
+        if not os.path.exists(cache_dir):
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                self.cache_status_var.set(f"已创建新的缓存目录: {cache_dir}")
+                return False
+            except Exception as e:
+                self.cache_status_var.set(f"创建缓存目录失败: {str(e)}")
+                return False
+        
+        # 检查模型是否已缓存
+        is_cached, model_cache_path = self.model_exists_in_cache(model_name, cache_dir)
+        if is_cached:
+            self.cache_status_var.set(f"模型 '{model_name}' 已在本地缓存\n路径: {model_cache_path}")
+            return True
+        
+        self.cache_status_var.set(f"模型 '{model_name}' 未在本地缓存，将需要下载")
+        return False
     
     def update_status(self, text):
         """更新状态栏文本，确保在主线程中执行"""
@@ -298,18 +387,41 @@ class DuplicateQuestionChecker:
     def load_model(self):
         try:
             model_name = self.model_var.get()
+            cache_dir = self.cache_path_var.get()
+            
             self.update_status(f"加载模型: {model_name}")
             self.update_loading_text(f"加载模型: {model_name}")
             
             # 更新加载状态信息
-            self.root.after(0, lambda: self.loading_window.update_phase("下载和加载模型"))
-            self.root.after(0, lambda: self.loading_window.update_network_status("正在从服务器下载模型..."))
+            self.root.after(0, lambda: self.loading_window.update_phase("加载模型"))
             
-            # 加载预训练模型
-            self.model = SentenceTransformer(model_name)
+            # 检查模型是否已在本地缓存
+            model_cached, model_cache_path = self.model_exists_in_cache(model_name, cache_dir)
             
-            self.root.after(0, lambda: self.loading_window.update_network_status("模型下载完成"))
-            self.root.after(0, lambda: self.loading_window.update_memory_status("模型已加载到内存"))
+            if model_cached:
+                self.root.after(0, lambda: self.loading_window.update_network_status("使用本地缓存模型，无需下载"))
+                self.root.after(0, lambda: self.loading_window.update_memory_status(f"从缓存读取模型...\n{model_cache_path}"))
+                
+                # 从缓存加载模型
+                os.environ['SENTENCE_TRANSFORMERS_HOME'] = cache_dir
+                self.model = SentenceTransformer(model_name)
+                
+                self.root.after(0, lambda: self.loading_window.update_memory_status("已从本地缓存成功加载模型"))
+            else:
+                self.root.after(0, lambda: self.loading_window.update_network_status("正在从服务器下载模型..."))
+                
+                # 设置缓存目录并下载/加载模型
+                os.environ['SENTENCE_TRANSFORMERS_HOME'] = cache_dir
+                self.model = SentenceTransformer(model_name)
+                
+                self.root.after(0, lambda: self.loading_window.update_network_status("模型下载完成"))
+                self.root.after(0, lambda: self.loading_window.update_memory_status("模型已加载到内存"))
+                
+                # 检查模型是否已保存到缓存目录
+                is_cached_now, model_path_now = self.model_exists_in_cache(model_name, cache_dir)
+                if is_cached_now:
+                    self.root.after(0, lambda: self.loading_window.update_memory_status(f"模型已缓存至:\n{model_path_now}"))
+            
             self.update_loading_text(f"模型 {model_name} 加载完成")
             return True
         

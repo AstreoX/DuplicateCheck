@@ -1,32 +1,61 @@
 @echo off
+echo 正在安装题库查重工具所需的依赖包...
+echo.
 
-REM 要安装的包列表
-set packages=pandas numpy matplotlib tqdm sentence-transformers scikit-learn xlrd openpyxl
-
-REM 显示安装信息
-echo 开始安装依赖包...
-
-REM 安装包
-set success_count=0
-for %%p in (%packages%) do (
-    echo 正在安装 %%p...
-    pip install %%p
-    if errorlevel 1 (
-        echo 失败!
-    ) else (
-        echo 成功!
-        set /a success_count+=1
-    )
+REM 检查Python是否已安装
+python --version 2>NUL
+if %ERRORLEVEL% NEQ 0 (
+    echo 错误: 未检测到Python安装，请先安装Python 3.7或更高版本。
+    echo 您可以从 https://www.python.org/downloads/ 下载Python。
+    pause
+    exit /b 1
 )
 
-REM 显示安装结果
-if %success_count%==8 (
-    echo.
-    echo 所有依赖包安装成功!
-    echo.
-    echo 现在您可以运行 question_duplicate_checker.py 来启动题库查重工具。
-) else (
-    echo.
-    echo 安装完成，但有 %success_count% 个包安装失败。
-    echo 请手动安装失败的包，或者尝试以管理员身份运行此脚本。
+echo 检测到Python已安装，正在安装依赖...
+echo.
+
+REM 创建缓存目录
+if not exist "%USERPROFILE%\.cache\sentence-transformers" (
+    echo 创建模型缓存目录...
+    mkdir "%USERPROFILE%\.cache\sentence-transformers"
 )
+
+REM 安装所需的Python库
+echo 正在安装pandas...
+pip install pandas
+echo.
+
+echo 正在安装numpy...
+pip install numpy
+echo.
+
+echo 正在安装matplotlib...
+pip install matplotlib
+echo.
+
+echo 正在安装tqdm...
+pip install tqdm
+echo.
+
+echo 正在安装scikit-learn...
+pip install scikit-learn
+echo.
+
+echo 正在安装xlrd (Excel读取支持)...
+pip install xlrd
+echo.
+
+echo 正在安装openpyxl (Excel读取支持)...
+pip install openpyxl
+echo.
+
+echo 正在安装sentence-transformers (这可能需要几分钟时间)...
+pip install sentence-transformers
+echo.
+
+echo 所有依赖安装完成！
+echo.
+echo 您现在可以运行题库查重工具了。
+echo.
+
+pause
